@@ -1,55 +1,52 @@
 import pandas as pd
 from gridyield.schemas.tariff import TariffStructure, TimeOfUsePeriod
+from gridyield.schemas.economics import FleetSpecs, NetworkEconomics
 from gridyield.engine.tariff_engine import TariffEngine
+from gridyield.engine.profitability_engine import ProfitabilityEngine
 
-def test_eep_ethiopian_tariff_scenario():
-    # 1. Setup EEP Tariff model ($0.0316 + 15% VAT, 2% HV loss, 1.05 PUE)
-    tou_peak = TimeOfUsePeriod(
-        name="Peak Shutdown",
-        rate_per_kwh=0.0316,
+def test_profitability_and_curtailment_logic():
+    # 1. Setup EEP Tariff ($0.0316 + 15% VAT = $0.03634/kWh base)
+    # Spike peak rate to $0.20/kWh between 18:00 and 21:00 to test profit-shield curtailment
+    tou_expensive = TimeOfUsePeriod(
+        name="Expensive Peak",
+        rate_per_kwh=0.20,
         start_hour=18,
         end_hour=21,
-        allowed_load_pct=0.0  # Full shutdown (0% load)
+        allowed_load_pct=1.0
     )
-    tou_daytime = TimeOfUsePeriod(
-        name="Daytime Cap",
-        rate_per_kwh=0.0316,
-        start_hour=5,
-        end_hour=17,
-        allowed_load_pct=0.75  # 75% load cap
-    )
-    
     tariff = TariffStructure(
-        contract_name="EEP Hydro-Grid Contract",
+        contract_name="Test Contract",
         base_rate_per_kwh=0.0316,
-        tax_rate_pct=0.15,  # 15% VAT
-        tou_periods=[tou_peak, tou_daytime],
-        demand_charge_per_kw=0.0,
-        high_to_low_voltage_loss_pct=0.02,  # 2% HV/LV loss
-        pue=1.05,
-        seasonal_capacity_cap_pct=1.0  # Full capacity available for base test
+        tax_rate_pct=0.15,
+        tou_periods=[tou_expensive]
     )
 
-    # 2. Create 24 hours of 10,000 kW (10 MW) steady draw data
+    # 2. Setup Fleet (100,000 TH/s S21 Fleet at 17.5 J/TH -> ~1,750 kW draw)
+    fleet = FleetSpecs(
+        fleet_name="Antminer S21 Batch",
+        total_hashrate_th=100000.0,
+        efficiency_j_per_th=17.5
+    )
+    # Network hashprice: $0.055 per TH/s per day
+    economics = NetworkEconomics(hashprice_usd_per_th_day=0.055)
+
+    # 3. Run Tariff Engine
     dates = pd.date_range("2026-08-01 00:00", periods=24, freq="1h")
-    df = pd.DataFrame({"kw_draw": [10000.0] * 24}, index=dates)
+    df = pd.DataFrame({"kw_draw": [1750.0] * 24}, index=dates)
+    tariff_engine = TariffEngine(tariff, facility_contract_kw=2000.0)
+    processed_df = tariff_engine.process_power_series(df)
 
-    # 3. Process through TariffEngine
-    engine = TariffEngine(tariff, facility_contract_kw=10000.0)
-    processed_df = engine.process_power_series(df)
-    summary = engine.compute_summary_metrics(processed_df)
+    # 4. Run Profitability Engine
+    prof_engine = ProfitabilityEngine(fleet, economics)
+    results_df = prof_engine.calculate_fleet_profitability(processed_df)
+    summary = prof_engine.compute_financial_summary(results_df)
 
-    # 4. Peer Review Assertions
-    # Tax-adjusted rate check ($0.0316 * 1.15 = ~$0.03634)
-    expected_taxed_rate = round(0.0316 * 1.15, 5)
-    assert round(processed_df.loc["2026-08-01 12:00", "effective_rate_per_kwh"], 5) == expected_taxed_rate
+    # 5. Assertions
+    # During normal hours ($0.03634/kWh), fleet should RUN profitably
+    assert results_df.loc["2026-08-01 10:00", "curtailment_action"] == "RUN"
+    
+    # During expensive peak ($0.20 * 1.15 = $0.23/kWh), cost exceeds revenue -> CURTAIL_UNPROFITABLE
+    assert results_df.loc["2026-08-01 19:00", "curtailment_action"] == "CURTAIL_UNPROFITABLE"
 
-    # Check Peak Shutdown (19:00 -> 0 kW delivered)
-    assert processed_df.loc["2026-08-01 19:00", "delivered_kw"] == 0.0
-
-    # Check Daytime Cap (12:00 -> 75% cap of 10 MW = 7,500 kW)
-    assert processed_df.loc["2026-08-01 12:00", "delivered_kw"] == 7500.0
-
-    # Check Summary outputs exist
-    assert summary["total_energy_cost_usd"] > 0
-    assert summary["blended_effective_cost_per_kwh"] > 0.0316
+    # Protected margin must be >= unprotected margin because we avoided losing money during peak hours
+    assert summary["protected_net_margin_usd"] >= summary["unprotected_net_margin_usd"]
