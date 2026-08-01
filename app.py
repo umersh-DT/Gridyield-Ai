@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent / "src"))
 import streamlit as st
 import pandas as pd
 import plotly.express as px
