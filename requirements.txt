@@ -6,5 +6,4 @@ numpy
 pydantic
 pyyaml
 tabulate
--e .
 "@
