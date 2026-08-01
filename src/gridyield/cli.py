@@ -10,6 +10,7 @@ from gridyield.schemas.economics import NetworkEconomics
 from gridyield.schemas.fleet import SiteFleetConfig, HardwareBatch
 from gridyield.engine.tariff_engine import TariffEngine
 from gridyield.engine.profitability_engine import MultiBatchProfitabilityEngine
+from gridyield.utils.data_generator import SyntheticDataGenerator
 
 
 def load_config(config_path: Path) -> tuple[SiteFleetConfig, TariffStructure, NetworkEconomics]:
@@ -39,7 +40,7 @@ def load_config(config_path: Path) -> tuple[SiteFleetConfig, TariffStructure, Ne
     return site_fleet, tariff, economics
 
 
-def run_scenario(config_path: str, hours: int = 24, export_csv: str | None = None):
+def run_scenario(config_path: str, hours: int = 24, annual: bool = False, export_csv: str | None = None):
     """Executes a simulation scenario for a configured site."""
     path = Path(config_path)
     if not path.exists():
@@ -47,11 +48,17 @@ def run_scenario(config_path: str, hours: int = 24, export_csv: str | None = Non
         sys.exit(1)
 
     site_fleet, tariff, economics = load_config(path)
+    simulation_hours = 8760 if annual else hours
 
-    # Create synthetic baseline power series assuming full facility load target
-    target_power_kw = site_fleet.total_fleet_power_kw
-    dates = pd.date_range("2026-08-01 00:00", periods=hours, freq="1h")
-    input_df = pd.DataFrame({"kw_draw": [target_power_kw] * hours}, index=dates)
+    # Generate annual 8,760h hydro time-series or standard baseline
+    if annual or simulation_hours > 168:
+        generator = SyntheticDataGenerator(year=2026, baseline_kw=site_fleet.total_fleet_power_kw)
+        input_df = generator.generate_annual_series()
+        if not annual and simulation_hours < 8760:
+            input_df = input_df.iloc[:simulation_hours]
+    else:
+        dates = pd.date_range("2026-08-01 00:00", periods=simulation_hours, freq="1h")
+        input_df = pd.DataFrame({"kw_draw": [site_fleet.total_fleet_power_kw] * simulation_hours}, index=dates)
 
     # Run Tariff & Multi-Batch Profitability Engines
     tariff_engine = TariffEngine(tariff, facility_contract_kw=site_fleet.contracted_grid_capacity_kw)
@@ -66,8 +73,9 @@ def run_scenario(config_path: str, hours: int = 24, export_csv: str | None = Non
     print("=" * 70)
     print(f"Facility Name          : {site_fleet.site_id}")
     print(f"Contracted Capacity    : {site_fleet.contracted_grid_capacity_kw:,.1f} kW")
-    print(f"Total Fleet Draw       : {site_fleet.total_fleet_power_kw:,.1f} kW")
+    print(f"Nominal Fleet Draw     : {site_fleet.total_fleet_power_kw:,.1f} kW")
     print(f"Total Fleet Hashrate   : {site_fleet.total_fleet_hashrate_th:,.1f} TH/s")
+    print(f"Simulation Duration    : {len(results_df):,} Hours ({len(results_df)/24:.1f} Days)")
     print(f"Network Hashprice      : ${economics.hashprice_usd_per_th_day:.4f} / TH / day")
     print("-" * 70)
 
@@ -101,7 +109,7 @@ def run_scenario(config_path: str, hours: int = 24, export_csv: str | None = Non
         ["Total Gross Revenue", f"${total_rev:,.2f}"],
         ["Total Grid Power Expense", f"${total_cost:,.2f}"],
         ["Net Operational Hosting Margin", f"${net_margin:,.2f}"],
-        ["Average Hourly Margin", f"${net_margin / hours:,.2f} / hr"]
+        ["Average Hourly Margin", f"${net_margin / len(results_df):,.2f} / hr"]
     ]
     print(tabulate(summary_data, headers=["Metric", "Value"], tablefmt="github"))
 
@@ -118,10 +126,11 @@ def main():
     parser = argparse.ArgumentParser(description="GridYield AI - Site Scenario Runner CLI")
     parser.add_argument("--config", "-c", required=True, help="Path to site YAML configuration file")
     parser.add_argument("--hours", "-t", type=int, default=24, help="Simulation duration in hours (default: 24)")
+    parser.add_argument("--annual", "-a", action="store_true", help="Run full 1-year (8,760 hours) simulation with hydro seasonal limits")
     parser.add_argument("--export", "-e", help="Optional CSV file path to export hourly results")
 
     args = parser.parse_args()
-    run_scenario(args.config, hours=args.hours, export_csv=args.export)
+    run_scenario(args.config, hours=args.hours, annual=args.annual, export_csv=args.export)
 
 
 if __name__ == "__main__":
