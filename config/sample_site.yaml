@@ -1,0 +1,46 @@
+site_id: "ethiopia_substation_alpha"
+contracted_grid_capacity_kw: 20000.0
+
+network_economics:
+  hashprice_usd_per_th_day: 0.055
+
+tariff:
+  contract_name: "EEP High Voltage Tariff"
+  base_rate_per_kwh: 0.0316
+  tax_rate_pct: 0.15
+  transformer_loss_pct: 0.02
+  pue: 1.05
+  tou_periods:
+    - name: "Daytime Capacity Restriction"
+      rate_per_kwh: 0.0316
+      start_hour: 10
+      end_hour: 16
+      allowed_load_pct: 0.75
+
+batches:
+  - batch_id: "client_s21_batch"
+    model_name: "Antminer S21+"
+    ownership: "CLIENT"
+    unit_count: 2000
+    hashrate_per_unit_th: 235.0
+    power_per_unit_kw: 3.87
+    curtailment_priority: 10
+    hosting_fee_rate_per_kwh: 0.065
+
+  - batch_id: "client_t21_batch"
+    model_name: "Antminer T21"
+    ownership: "CLIENT"
+    unit_count: 2000
+    hashrate_per_unit_th: 190.0
+    power_per_unit_kw: 3.61
+    curtailment_priority: 5
+    hosting_fee_rate_per_kwh: 0.065
+
+  - batch_id: "self_mining_dg1"
+    model_name: "DG1+"
+    ownership: "SELF_MINING"
+    unit_count: 500
+    hashrate_per_unit_th: 11.0
+    power_per_unit_kw: 3.40
+    curtailment_priority: 1
+    hosting_fee_rate_per_kwh: 0.0
