@@ -15,13 +15,13 @@ from gridyield.utils.data_generator import SyntheticDataGenerator
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="GridYield AI - Executive Dispatch & Profitability",
+    page_title="FlexPower Mining Engine",
     page_icon="⚡",
     layout="wide"
 )
 
-st.title("⚡ GridYield AI: Facility Dispatch & Fleet Margin Engine")
-st.markdown("Dynamic financial modeling and tiered curtailment simulation for grid-tied mining facilities.")
+st.title("⚡ FlexPower Mining")
+st.markdown("**Dynamic Power Curtailment & Fleet Profitability Engine**")
 
 # --- SIDEBAR CONTROLS ---
 st.sidebar.header("🕹️ Facility & Grid Controls")
